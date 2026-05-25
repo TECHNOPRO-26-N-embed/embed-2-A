@@ -1,6 +1,6 @@
 # 詳細設計書 — 組込み開発実習
 
-<!-- 作成者: イドンギ / 日付: 2026-05-22 / グループ: 2-A -->
+<!-- 作成者: イドンギ / 日付: 2026-05-25 / グループ: 2-A -->
 
 > **このドキュメントの目的**
 > 基本設計書（basic_design.md）で「**どのような構造で作るか**」を決めました。
@@ -36,9 +36,12 @@
   PIN_TEMP_SENSOR = A0  // LM35温度センサー（アナログ入力）
   PIN_4DIGIT_CLK  = 2   // 4digit表示器 TM1637 CLK
   PIN_4DIGIT_DIO  = 3   // 4digit表示器 TM1637 DIO
-  PIN_LED_GREEN   = 6   // 緑LED
-  PIN_LED_YELLOW  = 7   // 黄LED
-  PIN_LED_RED     = 8   // 赤LED
+  PIN_LED_BLUE_1   = 4   // 青LED（最下段）
+  PIN_LED_GREEN_1  = 5   // 緑LED（下から2段目）
+  PIN_LED_GREEN_2  = 6   // 緑LED（下から3段目）
+  PIN_LED_YELLOW_1 = 7   // 黄LED（下から4段目）
+  PIN_LED_YELLOW_2 = 8   // 黄LED（下から5段目）
+  PIN_LED_RED_1    = 9   // 赤LED（最上段）
   PIN_BUZZER      = 13  // パッシブブザー
 
 【状態管理】（basic_design.md 1-2 の状態名から転記）
@@ -54,22 +57,27 @@
 【センサー・入力値】（basic_design.md 2-1 から転記）
   tempRaw          : int   = 0
   tempC            : float = 0.0
+  finalTempC       : float = 0.0
   displayTemp10x   : int   = 0
 
 【その他のフラグ・カウンター】
   stableCount      : uint8_t = 0
   sensorErrorFlag  : bool    = false
+  emergencyBlinkFlag : bool  = false
 
 【定数】
   TEMP_START_C            : const float = 35.0
-  TEMP_NORMAL_MAX_C       : const float = 37.0
-  TEMP_WARNING_MAX_C      : const float = 39.0
+  TEMP_STEP_2_C           : const float = 36.0
+  TEMP_STEP_3_C           : const float = 37.0
+  TEMP_STEP_4_C           : const float = 38.0
+  TEMP_EMERGENCY_C        : const float = 39.0
   TEMP_VALID_MIN_C        : const float = 20.0
   TEMP_VALID_MAX_C        : const float = 45.0
   SAMPLE_INTERVAL_MS      : const unsigned long = 100
   OUTPUT_INTERVAL_MS      : const unsigned long = 200
   DISPLAY_INTERVAL_MS     : const unsigned long = 50
   MEASUREMENT_TIMEOUT_MS  : const unsigned long = 30000
+  EMERGENCY_BLINK_MS      : const unsigned long = 200
   LOW_TEMP_ERROR_MS       : const unsigned long = 5000
   HYSTERESIS_C            : const float = 0.2
 ```
@@ -106,7 +114,7 @@
 【処理の流れ】
 1. 各ピンモードを設定する
   - PIN_TEMP_SENSOR: 入力（analogRead使用）
-  - PIN_LED_GREEN / PIN_LED_YELLOW / PIN_LED_RED: OUTPUT
+  - PIN_LED_BLUE_1 / PIN_LED_GREEN_1 / PIN_LED_GREEN_2 / PIN_LED_YELLOW_1 / PIN_LED_YELLOW_2 / PIN_LED_RED_1: OUTPUT
   - PIN_BUZZER: OUTPUT
 2. 4digit表示器ライブラリを初期化し、輝度を標準値に設定する
 3. Serial.begin(9600) を実行する（デバッグ時のみ有効化）
@@ -167,6 +175,7 @@
 
 ＜currentState が 2（判定・通知） のとき＞
 - 最終温度帯に対応する音・LEDパターンを出力する
+- emergencyBlinkFlag=true（= finalTempC > 39.0）の場合は、青〜赤の全段を一度点灯してから200ms周期で点滅する
 - 3秒通知後に currentState = 0 に戻す
 
 ＜currentState が 3（測定エラー） のとき＞
@@ -214,10 +223,11 @@
 【処理の流れ】
 1. currentState ごとに遷移条件を判定する
 2. 待機中: tempC >= 35.0 で計測中へ遷移する
-3. 計測中: 30秒経過かつ安定条件成立で判定・通知へ遷移する
-4. 計測中: tempC < 35.0 が5秒継続で測定エラーへ遷移する
-5. 判定・通知: 通知時間満了で待機中へ戻る
-6. 測定エラー: 一定時間経過または温度回復で待機中へ戻る
+3. 計測中: 30秒経過かつ安定条件成立で finalTempC = tempC を保存し、判定・通知へ遷移する
+4. 判定・通知へ遷移するとき、finalTempC > 39.0 なら emergencyBlinkFlag=true、そうでなければ false にする
+5. 計測中: tempC < 35.0 が5秒継続で測定エラーへ遷移する
+6. 判定・通知: 通知時間満了で待機中へ戻る
+7. 測定エラー: 一定時間経過または温度回復で待機中へ戻る
 
 【エラー・異常ケース】
 - sensorErrorFlag=true のとき: 状態遷移を保留し、誤遷移を防止する
@@ -244,7 +254,7 @@
 
 ### `updateBuzzerByTemperature(tempC, state)` — 状態と温度帯に応じて音を出す
 
-**basic_design.md 2-2 との対応：** 温度帯に応じた音階・警告音を出力する。
+**basic_design.md 2-2 との対応：** 測定進捗に応じた音階と判定後の通知音を出力する。
 
 **引数：** `tempC`（float）, `state`（uint8_t）
 
@@ -252,8 +262,10 @@
 
 ```
 【処理の流れ】
-1. state が計測中なら、tempCに応じて音階を段階的に上げる
-2. state が判定・通知なら温度帯ごとの確定音を鳴らす
+1. state が計測中なら、経過時間（0〜30秒）を8段階に分けてドレミファソラシドを鳴らす
+2. state が判定・通知なら finalTempC に基づく確定音を鳴らす
+  - 35.0〜39.0℃: 完了音を1回
+  - 39.0℃超: 緊急音を短周期で繰り返す
 3. state が測定エラーなら力が抜ける音を短く繰り返す
 4. state が待機中なら noTone() で停止する
 
@@ -263,7 +275,7 @@
 
 ### `updateLedByTemperature(tempC, state)` — 状態と温度帯に応じてLEDを制御する
 
-**basic_design.md 2-2 との対応：** 温度帯に応じてLED色と点滅を制御する。
+**basic_design.md 2-2 との対応：** 青1+緑2+黄2+赤1を温度帯に応じて下段から段階点灯する。
 
 **引数：** `tempC`（float）, `state`（uint8_t）
 
@@ -272,8 +284,13 @@
 ```
 【処理の流れ】
 1. 待機中は全LED消灯
-2. 計測中は温度上昇に応じて緑→黄→赤を段階点灯
-3. 判定・通知で 35-37℃:緑, 37-39℃:黄, 39℃以上:赤点滅 を出す
+2. 計測中と判定・通知（39.0℃以下）では以下の段階で点灯する
+  - tempC <= 35.0: 青1（ただし5秒継続して35.0未満なら測定エラー遷移）
+  - 35.0 < tempC < 36.0: 青1 + 緑1
+  - 36.0 <= tempC < 37.0: 青1 + 緑1 + 緑2
+  - 37.0 <= tempC < 38.0: 青1 + 緑1 + 緑2 + 黄1
+  - 38.0 <= tempC <= 39.0: 青1 + 緑1 + 緑2 + 黄1 + 黄2
+3. 判定・通知で emergencyBlinkFlag=true の場合は、青1〜赤1を全点灯後に200ms周期で全段点滅する
 4. 測定エラーは全LED消灯を維持する
 
 【エラー・異常ケース】
@@ -383,6 +400,8 @@
     - now - lastDisplayMs >= 50 で update4DigitDisplay() を実行
   5. 30秒タイムアウト判定
     - now - measurementStartMs >= 30000 で判定・通知へ移行
+  6. 緊急時点滅（200ms）
+    - 判定・通知かつ emergencyBlinkFlag=true のとき、now - lastOutputMs >= 200 で全段ON/OFFを反転
 ```
 
 ---
@@ -394,15 +413,12 @@
 
 ```
 【処理の流れ】
-1. 温度の移動平均値 tempAvg を求める
-2. 閾値判定時にヒステリシス（±0.2℃）を適用し、境界での振動遷移を防ぐ
-3. 判定完了時は最終温度帯を固定し、通知終了まで再判定しない
+1.
+2.
+3.
 
 【入力値と出力値の関係】
-- tempAvg < 35.0         -> 測定不成立候補（低温継続判定へ）
-- 35.0 <= tempAvg < 37.0 -> 正常通知（緑LED + 通常音）
-- 37.0 <= tempAvg < 39.0 -> 注意通知（黄LED + 警告音）
-- 39.0 <= tempAvg        -> 緊急通知（赤LED点滅 + 緊急音）
+
 ```
 
 ---
@@ -415,10 +431,10 @@
 
 | No | 確認したい内容 | 挿入する関数 | Serial.println の内容例 |
 |:---|:---|:---|:---|
-| 1 | 温度変換が正しいか | `readTemperatureSensor()` | `Serial.println(tempC, 1);` |
-| 2 | 状態遷移が正しく起きているか | `updateState()` | `Serial.println(currentState);` |
-| 3 | 温度帯判定が正しいか | `notifyBySoundAndLed()` | `Serial.println("zone=normal/warn/emergency");` |
-| 4 | 4digit表示が更新停止していないか | `update4DigitDisplay()` | `Serial.println("display updated");` |
+| 1 | センサー値が正しく取れているか | `readSensor()` | `Serial.println(sensorValue);` |
+| 2 | 状態遷移が正しく起きているか | `loop()` | `Serial.println(currentState);` |
+| 3 | チャタリング処理が効いているか | `readButton()` | `Serial.println("btn confirmed");` |
+| 4 |  |  |  |
 
 ---
 
@@ -441,10 +457,11 @@
 
 | No | テスト対象の関数 | 入力・操作 | 期待する結果 | 実際の結果 | 合否 |
 |:---|:---|:---|:---|:---|:---|
-| 1 | updateLedByTemperature() | state=2, tempC=36.8 | 緑LEDが点灯する | | [ ] |
-| 2 | updateLedByTemperature() | state=2, tempC=39.2 | 赤LEDが200ms周期で点滅する | | [ ] |
-| 3 | updateBuzzerByTemperature() | state=3（測定エラー） | エラー音パターンが鳴る | | [ ] |
-| 4 | update4DigitDisplay() | state=1, displayTemp10x=368 | 36.8 が表示される | | [ ] |
+| 1 | updateLedByTemperature() | state=2, tempC < 35.0 | 青1のみ点灯する | | [ ] |
+| 2 | updateLedByTemperature() | state=2, tempC = 36.5 | 青1+緑1+緑2が点灯する | | [ ] |
+| 3 | updateLedByTemperature() | state=2, tempC >= 39.0（30秒経過） | 青〜赤を全点灯後、200ms周期で全段点滅する | | [ ] |
+| 4 | updateBuzzerByTemperature() | state=1（計測中） | 進捗に応じて音階が上がる | | [ ] |
+| 5 | update4DigitDisplay() | state=1, displayTemp10x=365 | 36.5 が表示される | | [ ] |
 
 ### 5-3. タイミング・並行動作テスト
 
@@ -498,15 +515,15 @@
 
 | No | 指摘内容 | 指摘者 | 対応 |
 |:---|:---|:---|:---|
-| 1 |  |  |  |
+| 1 | 体の脇の下以外の部位の測定も考慮しているのか？ | 飯田翔斗 | 回路設計に注意 |
 | 2 |  |  |  |
 | 3 |  |  |  |
 
 ### 7-2. レビューを受けて変更した点
 
--
+-体温計がどんな形で作られるかによって変わるから、できるだけ気を使って作ってみる
 -
 
 ---
 
-*初版: 2026-05-22 / AIレビュー: 2026-05-22 / グループレビュー後更新: YYYY-MM-DD*
+*初版: 2026-05-25 / AIレビュー: 2026-05-25 / グループレビュー後更新: 2026-05-25*
