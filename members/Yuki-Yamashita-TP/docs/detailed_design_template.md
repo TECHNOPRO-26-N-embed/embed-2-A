@@ -136,8 +136,8 @@
 ＜currentState が 2（入力）のとき＞
   - updatePlayerTone() でY軸から音程、X軸から音長を更新
   - 必要に応じて入力音を鳴らす
-  - 短押しなら currentState = 3（確認）
-  - 長押し（1秒）なら currentState = 4（判定）
+  - 短押しなら currentState = 4（判定）
+  - 長押し（1秒）なら currentState = 3（確認）
 
 ＜currentState が 3（確認）のとき＞
   - checkAnswer() で暫定結果のみ表示（確定しない）
@@ -189,8 +189,6 @@
 1. stickValueY を NOTE_MIN_HZ〜NOTE_MAX_HZ に線形マップして playerNote を更新
 2. stickValueX を DURATION_MIN_MS〜DURATION_MAX_MS に線形マップして playerDurationMs を更新
 3. 前回値との差が deadband 未満なら値更新を抑制（ノイズ除去）
-4. 音の再生は READ_INTERVAL_MS（50ms）ごとに制限する  
-5. 音の再生時間は30〜50ms程度とし、過度な連続再生を防ぐ
 
 【エラー・異常ケース】
 - A/D値が0固定または1023固定で異常と判断した場合:
@@ -378,13 +376,13 @@
 【処理の流れ】
 1. ボタン押下開始時刻 pressStartTime を記録
 2. 押下中に nowMs - pressStartTime を監視
-3. 1000ms未満で解放: 短押しとして確認状態へ
-4. 1000ms以上で解放: 長押しとして提出（判定状態へ）
+3. 1000ms未満で解放: 短押しとして提出（判定状態へ）
+4. 1000ms以上で解放: 長押しとして確認状態へ
 5. 確認状態では checkAnswer() を実行後、入力状態へ戻す
 
 【入力値と出力値の関係】
-- 短押し: 仮確認して再入力可能
-- 長押し: 最終判定へ進む
+- 短押し: 最終判定へ進む
+- 長押し: 仮確認して再入力可能
 ```
 
 ---
