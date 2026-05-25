@@ -34,9 +34,11 @@
 ```
 【ピン定義】（basic_design.md 3-1 から転記）
   PIN_BUTTON    = 2    // タクトスイッチ（INPUT_PULLUP）
+  PIN_LED_GREEN = 8  // 黄LED
   PIN_LED_RED   = 9    // 赤LED
   PIN_LED_GREEN = 10   // 緑LED
-  PIN_BUZZER    = 11   // パッシブブザー
+  PIN_LED_GREEN = 11   // 青LED
+  PIN_BUZZER    = 12  // パッシブブザー
 
 【状態管理】（basic_design.md 1-2 の状態名から転記）
   currentState  : int = 0   // 0:待機 1:動作中 2:完了 3:エラー
@@ -56,6 +58,7 @@
 ---
 /// 【ピン定義】
 PIN_BUTTON    = 2    // タクトスイッチ（INPUT_PULLUP）
+PIN_LED_GREEN = 8  // 黄LED
 PIN_LED_RED   = 9    // RGB LED 赤
 PIN_LED_GREEN = 10   // RGB LED 緑
 PIN_LED_BLUE  = 11   // RGB LED 青
