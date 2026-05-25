@@ -189,6 +189,8 @@
 1. stickValueY を NOTE_MIN_HZ〜NOTE_MAX_HZ に線形マップして playerNote を更新
 2. stickValueX を DURATION_MIN_MS〜DURATION_MAX_MS に線形マップして playerDurationMs を更新
 3. 前回値との差が deadband 未満なら値更新を抑制（ノイズ除去）
+4. 音の再生は READ_INTERVAL_MS（50ms）ごとに制限する  
+5. 音の再生時間は30〜50ms程度とし、過度な連続再生を防ぐ
 
 【エラー・異常ケース】
 - A/D値が0固定または1023固定で異常と判断した場合:
