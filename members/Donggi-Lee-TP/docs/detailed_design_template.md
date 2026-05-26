@@ -116,10 +116,10 @@
   - PIN_TEMP_SENSOR: 入力（analogRead使用）
   - PIN_LED_BLUE_1 / PIN_LED_GREEN_1 / PIN_LED_GREEN_2 / PIN_LED_YELLOW_1 / PIN_LED_YELLOW_2 / PIN_LED_RED_1: OUTPUT
   - PIN_BUZZER: OUTPUT
-2. 4digit表示器ライブラリを初期化し、輝度を標準値に設定する
+2. LCD1602 I2Cライブラリを初期化し、lcd.begin(16,2)、lcd.backlight() を実行する
 3. Serial.begin(9600) を実行する（デバッグ時のみ有効化）
-4. 初期表示として4digitに `----` を表示し、LED全消灯・ブザー停止を確認する
-5. 起動確認音を150msだけ鳴らし、currentStateを待機中(0)に設定する
+4. 初期表示としてLCDに「Ready」または「----」を表示し、LED全消灯・ブザー停止を確認する
+5. 起動確認音（150ms）を鳴らした後、currentStateを待機中（0）に設定する
 ```
 
 ---
@@ -129,26 +129,34 @@
 > ※ loop() は「状態ごとに何をするか」だけ書く。細かい処理は各関数に任せる。
 
 ```
+
+
 【処理の流れ】
 
-＜毎ループ実行すること＞
-  - 入力を読む（readButton(), readSensor() などを呼ぶ）
-  - 現在時刻を取得: now = millis()
+＜毎ループで実行すること＞
+- now = millis() を取得する
+- 100msごとに readTemperatureSensor() で tempC を更新
+- updateState(tempC) で currentState を更新
+- notifyBySoundAndLed(tempC, currentState) を実行
+- showTemperatureOnLcd(tempC, currentState) を実行
 
-＜currentState が 0（待機中）のとき＞
-  - センサー値を監視する
-  - 検知条件を満たしたら → currentState = 1
+＜currentState == 0（待機中）＞
+- tempC >= 35.0 を検知したら計測開始、measurementStartMs = now、currentState = 1
+- それ以外は LCD に「Ready」または「----」を表示
 
-＜currentState が 1（動作中）のとき＞
-  - メイン処理を行う
-  - 終了条件を満たしたら → currentState = 2
+＜currentState == 1（計測中）＞
+- tempC を LCD にリアルタイム表示
+- 30秒経過かつ温度安定時に currentState = 2
+- tempC < 35.0 が5秒継続した場合は currentState = 3
 
-＜currentState が 2（完了）のとき＞
-  - 完了表示をする
-  - リセットボタンが押されたら → currentState = 0
+＜currentState == 2（判定・通知）＞
+- 最終温度を LCD に表示
+- emergencyBlinkFlag=true（39.0℃超）の場合は LED/ブザーで警告
+- 3秒後に currentState = 0
 
-＜currentState が 3（エラー）のとき＞
-  - エラー表示をする / リセットを待つ
+＜currentState == 3（エラー）＞
+- LCD に「Error」または「Sensor Error」を表示し、LED/ブザーで警告
+- 2秒後または温度回復時に currentState = 0
 ```
 
 **↓ 自分の loop() を設計してください**
@@ -297,23 +305,26 @@
 - 状態値が未定義の場合: 全LED消灯にフォールバックする
 ```
 
-### `update4DigitDisplay(displayTemp10x, state)` — 4digit表示器へ表示データを送る
 
-**basic_design.md 2-2 との対応：** 現在温度またはエラーコードを4digitへ表示する。
 
-**引数：** `displayTemp10x`（int）, `state`（uint8_t）
+### `showTemperatureOnLcd(tempC, state)` — LCD1602に温度・状態・エラーを表示する
+
+**basic_design.md 2-2 との対応：** 現在の温度・状態・エラーメッセージをLCD1602に表示する
+
+**引数：** `tempC`（float）, `state`（uint8_t）
 
 **戻り値：** void
 
 ```
 【処理の流れ】
-1. state が待機中なら `----` を表示する
-2. 計測中または判定・通知なら displayTemp10x を小数1桁で表示する
-3. 測定エラーなら `Err` を表示する
-4. 更新周期（50ms）を守って多重更新を防ぐ
+1. state==0（待機中）：「Ready」または「----」を表示
+2. state==1（計測中）：「Measuring: xx.xC」をリアルタイム表示
+3. state==2（判定・通知）：最終温度「Result: xx.xC」を表示
+4. state==3（エラー）：「Error」または「Sensor Error」を表示
+5. 表示周期（200msなど）ごとに最新状態を反映
 
 【エラー・異常ケース】
-- 表示器通信に失敗した場合: 次周期で再送し、1秒超なら Err を維持する
+- LCD通信失敗時は次周期で再試行、1秒以上失敗時は「Error」を維持
 ```
 
 ### `notifyBySoundAndLed(tempC, state)` — 音通知とLED通知を統合して呼び出す
@@ -334,23 +345,8 @@
 - いずれかが異常を返した場合: 出力を安全側（消灯・停止）にする
 ```
 
-### `showTemperatureOn4Digit(displayTemp10x)` — 温度値を4桁表示形式へ整形する
 
-**basic_design.md 2-2 との対応：** 0.1℃単位の温度を4桁表示に整形する。
-
-**引数：** `displayTemp10x`（int）
-
-**戻り値：** void
-
-```
-【処理の流れ】
-1. 温度値を 0000〜9999 の範囲に収める
-2. 小数点位置を固定して 36.8 -> 368 形式で表示用バッファを作る
-3. update4DigitDisplay() に整形済みデータを渡す
-
-【エラー・異常ケース】
-- 値が範囲外の場合: 上限下限へ丸めて表示する
-```
+### （削除）4digit関連の関数・説明はLCD1602表示関数に置き換え
 
 ---
 
@@ -396,8 +392,8 @@
     - now - lastOutputMs >= 200 で updateBuzzerByTemperature() を実行
   3. LED更新（100ms）
     - now - lastOutputMs >= 100 の周期で updateLedByTemperature() を実行
-  4. 4digit更新（50ms）
-    - now - lastDisplayMs >= 50 で update4DigitDisplay() を実行
+  4. LCD表示の更新（200ms）
+    - now - lastDisplayMs >= 200 で showTemperatureOnLcd() を実行
   5. 30秒タイムアウト判定
     - now - measurementStartMs >= 30000 で判定・通知へ移行
   6. 緊急時点滅（200ms）
