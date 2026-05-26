@@ -134,7 +134,7 @@
 
 ＜currentState が 0（待機中）のとき＞
   - LED消灯
-  - 左右入力で難易度変更
+  - selectDifficulty()を呼び出して難易度選択
   - 短押しを検知したら currentState = 1（出題）
 
 ＜currentState が 1（出題）のとき＞
@@ -302,7 +302,7 @@
    - 右側（例：683〜1023）→ Hard
 4. 難易度が変更された場合、
    difficulty 変数を更新する
-5. 難易度に応じて制限時間（timeLimit）を設定する
+5. 難易度に応じて制限時間（timeLimitMs）を設定する
    - Easy   ：制限時間なし（または10秒）
    - Normal ：7秒
    - Hard   ：4秒
