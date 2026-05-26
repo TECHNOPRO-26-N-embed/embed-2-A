@@ -232,46 +232,58 @@ void updatePlayerTone() {
   playerNote = mappedNote;
   playerDurationMs = mappedDuration;
 
-  if (nowMs - lastPreviewToneTime >= READ_INTERVAL_MS) {
-    int previewMs = constrain(playerDurationMs, 30, 50);
-    tone(PIN_BUZZER, playerNote, previewMs);
-    lastPreviewToneTime = nowMs;
-  }
+
+if (nowMs - lastPreviewToneTime >= READ_INTERVAL_MS &&
+    abs(playerNote - mappedNote) > 2) {
+
+  int previewMs = constrain(playerDurationMs, 30, 50);
+  tone(PIN_BUZZER, mappedNote, previewMs);
+  lastPreviewToneTime = nowMs;
+}
+
 }
 
 void selectDifficulty() {
-  static int prevDifficulty = -1;
+  static int prevZone = 1;
+  static bool wasCentered = true;
 
-  if (stickValueX < (512 - 250)) {
-    difficulty = 0;
-  } else if (stickValueX > (512 + 250)) {
-    difficulty = 2;
+  int rawX = analogRead(PIN_STICK_X);
+  int threshold = 120;
+
+  int zone;
+
+  if (rawX < 512 - threshold) {
+    zone = 0;
+  } else if (rawX > 512 + threshold) {
+    zone = 2;
   } else {
-    difficulty = 1;
+    zone = 1;
   }
 
-  switch (difficulty) {
-    case 0:
-      timeLimitMs = TIME_LIMIT_EASY;
-      break;
-    case 2:
-      timeLimitMs = TIME_LIMIT_HARD;
-      break;
-    case 1:
-    default:
-      timeLimitMs = TIME_LIMIT_NORMAL;
-      break;
+  // 中央に戻ったらフラグON
+  if (zone == 1) {
+    wasCentered = true;
   }
 
-  if (difficulty != prevDifficulty) {
+  // 中央から外に出た瞬間だけ反応
+  if (wasCentered && zone != 1) {
+    difficulty = zone;
+
+    if (difficulty == 0) timeLimitMs = TIME_LIMIT_EASY;
+    else if (difficulty == 2) timeLimitMs = TIME_LIMIT_HARD;
+    else timeLimitMs = TIME_LIMIT_NORMAL;
+
     int notifyTone = 440;
-    if (difficulty == 0) {
-      notifyTone = 330;
-    } else if (difficulty == 2) {
-      notifyTone = 660;
-    }
+    if (difficulty == 0) notifyTone = 330;
+    if (difficulty == 2) notifyTone = 660;
+
     tone(PIN_BUZZER, notifyTone, 70);
-    prevDifficulty = difficulty;
+    Serial.print("zone changed → ");
+    Serial.println(zone);
+    prevZone = zone;
+
+
+    wasCentered = false; // 連続入力防止
   }
 }
 
