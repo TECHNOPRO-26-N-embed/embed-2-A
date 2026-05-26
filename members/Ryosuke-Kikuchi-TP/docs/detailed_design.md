@@ -33,11 +33,12 @@
 
 ```
 【ピン定義】（basic_design.md 3-1 から転記）
-  PIN_KEYPAD_ROW = {2, 3, 7, 8}       // Membrane Switch 行
-  PIN_KEYPAD_COL = {A0, A1, A2, A3}    // Membrane Switch 列
-  PIN_LED_BLUE   = 9                   // 青LED
-  PIN_LED_RED    = 10                  // 赤LED
-  PIN_BUZZER     = 11                  // パッシブブザー
+  PIN_KEYPAD_ROW : uint8_t[4] = {2, 3, 7, 8};       // Membrane Switch 行
+  PIN_KEYPAD_COL : uint8_t[4] = {A0, A1, A2, A3};   // Membrane Switch 列
+  keypadMap : char[4][4] = {{'1','2','3','A'},{'4','5','6','B'},{'7','8','9','C'},{'*','0','#','D'}}; // 例A:スタート, B:停止, C:リセット, 0-9:数字
+  PIN_LED_BLUE   : uint8_t = 9;                     // 青LED
+  PIN_LED_RED    : uint8_t = 10;                    // 赤LED
+  PIN_BUZZER     : uint8_t = 11;                    // パッシブブザー
 
 【状態管理】（basic_design.md 1-2 の状態名から転記）
   currentState  : uint8_t = 0   // 0:待機中 1:計測中 2:終了通知
@@ -92,7 +93,7 @@
 1. ピンモードを設定する（PIN_LED_BLUE/PIN_LED_RED: OUTPUT, PIN_BUZZER: OUTPUT, キーパッド行列ピン初期化）
 2. 必要なライブラリの初期化（例: 7セグ表示用など、任意）
 3. Serial.begin(9600)（デバッグ用）
-4. 起動確認として緑LEDを1秒点灯して消灯
+4. 起動確認として青LEDを1秒点灯して消灯
 ```
 
 ---
@@ -143,7 +144,7 @@
 
 ＜currentState が 2（終了通知）のとき＞
   - updateNotify()でLED点滅・ブザー制御
-  - 通知完了（5秒経過 or 停止/リセットキー）で currentState = 0
+  - 停止キーまたはリセットキー押下時のみ currentState = 0
 ```
 
 ---
@@ -265,8 +266,8 @@
 ```
 【処理の流れ】
 1. notifyStartMillis からの経過時間を計算する
-2. 5秒以内なら、赤LED点滅（1秒に5回）とブザー鳴動を維持する
-3. 5秒経過または停止/リセット入力で通知終了し、待機中へ戻す
+2. 終了通知中は、赤LED点滅（1秒に5回）とブザー鳴動を維持する
+3. 停止/リセット入力があったときのみ通知終了し、待機中へ戻す
 
 【エラー・異常ケース】
 - タイマー値が不整合の場合: 通知を停止して待機中へ戻す
@@ -369,10 +370,11 @@
 1. setSeconds が確定したら remainSeconds = setSeconds として計測を開始する
 2. 計測中は 1000ms ごとに remainSeconds を 1 減算する
 3. remainSeconds が 0 になった時点で終了通知状態へ遷移する
+4. 終了通知状態は、停止キーまたはリセットキー押下時のみ待機中へ戻る
 
 【入力値と出力値の関係】
 - 入力: setSeconds（1〜5999秒）
-- 出力: remainSeconds（毎秒減算）、state遷移（待機中→計測中→終了通知→待機中）
+- 出力: remainSeconds（毎秒減算）、state遷移（待機中→計測中→終了通知。終了通知から待機中への復帰は停止/リセット入力時のみ）
 ```
 
 ---
@@ -471,13 +473,13 @@
 
 | No | 指摘内容 | 指摘者 | 対応 |
 |:---|:---|:---|:---|
-| 1 |  |  |  |
+| 1 | タイマー終了から5秒間のみLED点滅とブザーが鳴るのは短すぎるのでは？ | 飯田さん |  |
 | 2 |  |  |  |
 | 3 |  |  |  |
 
 ### 7-2. レビューを受けて変更した点
 
--
+-タイマー終了後のLED点滅とブザー鳴動を停止ボタンかリセットボタンを押すまで永続的に鳴らすようにした
 -
 
 ---
