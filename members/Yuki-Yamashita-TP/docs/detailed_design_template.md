@@ -21,8 +21,8 @@
 |:--|:--|
 | 作品タイトル | TinyMusician |
 | 状態の種類（1-2 状態遷移から） | 待機中 / 出題 / 入力 / 判定 / 結果表示（実装時に確認状態を追加） |
-| 実装する関数の数（2-2 関数一覧から） | 8個 |
-| グローバル変数の合計バイト数（2-1 SRAM確認から） | 27B |
+| 実装する関数の数（2-2 関数一覧から） | 7個（doOptionalEventは今回非採用） |
+| グローバル変数の合計バイト数（2-1 SRAM確認から） | 27B（イベントフラグ追加により実装時に再見積） |
 
 ---
 
@@ -42,6 +42,7 @@
 【状態管理】（basic_design.md 1-2 の状態名から転記）
   currentState      : int = 0      // 0:待機 1:出題 2:入力 3:確認 4:判定 5:結果表示
   nextState         : int = 0      // 遷移先予約（必要時のみ使用）
+  targetTonePlayed  : bool = false // 出題音の1回再生制御フラグ
 
 【音・判定仕様】
   targetNote        : int = 0      // 出題音（Hz）
@@ -59,6 +60,9 @@
   TIME_LIMIT_NORMAL : const int = 7000   // 7秒 (ms)
   TIME_LIMIT_HARD   : const int = 4000   // 4秒 (ms)
   timeLimitMs       : int = 7000   // 現在の制限時間（ms）
+  inputStartTime    : unsigned long = 0  // 入力状態の開始時刻
+  WARNING_START_MS  : const int = 3000   // 残り3秒で警告演出開始
+  WARNING_FINAL_MS  : const int = 1000   // 残り1秒で最終警告演出
 
 【入力値】
   stickValueX       : int = 0
@@ -76,6 +80,8 @@
   DEBOUNCE_DELAY    : const int = 50     // ms
   REINPUT_DELAY     : const int = 200    // ms
   LONG_PRESS_MS     : const int = 1000   // ms
+  shortPressEvent   : bool = false // 解放時に1回だけtrue
+  longPressEvent    : bool = false // 解放時に1回だけtrue
 
 【タイマー（millis()用）】
   nowMs             : unsigned long = 0
@@ -140,19 +146,25 @@
 ＜currentState が 1（出題）のとき＞
   - playTargetTone() を1回だけ実行
   - 再生完了後 currentState = 2（入力）
+  - 入力遷移時に inputStartTime = nowMs を記録
 
 ＜currentState が 2（入力）のとき＞
   - updatePlayerTone() でY軸から音程、X軸から音長を更新
   - 必要に応じて入力音を鳴らす
+  - timeLimitMs > 0 のとき残り時間を計算し、演出を更新
+    - 残り3000ms以下: LEDを250ms周期で点滅
+    - 残り1000ms以下: LEDを100ms周期で高速点滅
   - 短押しなら currentState = 3（確認）
   - 長押し（1秒）なら currentState = 4（判定）
+  - timeLimitMs > 0 かつ (nowMs - inputStartTime >= timeLimitMs) なら
+    自動的に currentState = 4（判定）
 
 ＜currentState が 3（確認）のとき＞
   - checkAnswer() で暫定結果のみ表示（確定しない）
   - 表示後 currentState = 2（入力）へ戻す
 
 ＜currentState が 4（判定）のとき＞
-  - ブザーで「お題の音→プレイヤーの音」を順に再生
+  - タイムリミット警告演出（点滅）を停止
   - checkAnswer() で最終判定
   - isCorrect を確定
   - currentState = 5（結果表示）
@@ -176,7 +188,7 @@
 【処理の流れ】
 1. NOTE_MIN_HZ〜NOTE_MAX_HZ で targetNote をランダム生成
 2. 基本音長（例: 200ms）で targetNote をブザー再生
-3. 再生終了フラグを立てる
+3. 再生終了フラグ targetTonePlayed = true を立てる
 
 【エラー・異常ケース】
 - 生成値が範囲外になった場合:
@@ -230,7 +242,7 @@
 - 難易度変更中にボタンが押される:
   難易度変更を中断し、ボタン押下処理を優先。
 - 難易度が未選択のまま次の状態に進む:
-  デフォルト難易度（Normal）を適用し、警告音を鳴らす。
+  デフォルト難易度（Normal）を適用し、LEDの短い点滅で通知する。
 - ジョイスティックの値が範囲外（センサー異常）:
   範囲外の値は無視し、前回の正常値を保持。
 ```
@@ -270,7 +282,7 @@
 ```
 【処理の流れ】
 1. 差分 diff = abs(targetNote - playerNote) を計算
-2. 判定時はブザーで targetNote を短く再生する
+2. checkAnswer() 内でブザーにより targetNote を短く再生する
 3. 続けてブザーで playerNote を短く再生する
 4. diff <= NOTE_TOLERANCE_HZ なら正解、それ以外は不正解
 5. 確認モード時は結果表示のみ（状態確定はしない）
@@ -278,7 +290,7 @@
 
 【エラー・異常ケース】
 - 未出題で targetNote=0 の場合:
-  判定せず false を返し、待機に戻す
+  判定せず isCorrect = false とし、待機に戻す
 ```
 
 ---
@@ -291,27 +303,9 @@
 **戻り値：** void
 
 ```
-【処理の流れ】
-
-1. 現在の状態が待機中（currentState = 0）であることを確認する
-2. ジョイスティックX方向の値を監視し、
-   前回値との変化が deadband 以上であるかを確認する
-3. stickValueX の値に応じて難易度を変更する
-   - 左側（例：0〜341）   → Easy
-   - 中央（例：342〜682） → Normal
-   - 右側（例：683〜1023）→ Hard
-4. 難易度が変更された場合、
-   difficulty 変数を更新する
-5. 難易度に応じて制限時間（timeLimitMs）を設定する
-   - Easy   ：制限時間なし（または10秒）
-   - Normal ：7秒
-   - Hard   ：4秒
-6. 難易度が変化した場合のみ、
-   効果音またはLED点灯により変更を通知する
-7. イベント処理後は状態を変更せず待機状態を維持する
-【エラー・異常ケース】
-- イベント中にボタン押下が来た場合:
-  中断して入力状態へ戻る
+【今回の方針】
+- 本関数は今回の実装では使用しない（非採用）
+- 難易度変更は selectDifficulty() に一本化する
 ```
 
 ---
@@ -350,7 +344,8 @@
 2. rawが前回値と異なる場合 lastDebounceTime = nowMs
 3. nowMs - lastDebounceTime >= DEBOUNCE_DELAY のとき確定値を更新
 4. 押下エッジ（true→false）で pressStartTime を記録
-5. 解放時に押下時間を計算し、短押し/長押しフラグを更新
+5. 解放時に押下時間を計算し、shortPressEvent / longPressEvent を1回だけtrueにする
+6. loop() 側でイベントを消費後に false に戻す
 
 【エラー・異常ケース】
 - 高速連打で REINPUT_DELAY 未満の場合:
@@ -395,6 +390,7 @@
   2. ジョイスティック読取: 50ms周期（READ_INTERVAL_MS）
   3. 長押し判定: 押下継続が1000ms以上（LONG_PRESS_MS）
   4. 再入力受付: 前回入力から200ms以上（REINPUT_DELAY）
+  5. 時間切れ自動提出: 入力開始から timeLimitMs 経過で判定へ遷移
 
 【処理の流れ（例: LED点滅）】
   1. nowMs = millis()
@@ -422,6 +418,32 @@
 
 ---
 
+### 3-4. タイムリミット連動演出（残り時間警告）
+
+```
+【考え方】
+  時間制限あり（Normal/Hard）のときだけ、残り時間が少なくなるほど
+  LED点滅を速くしてプレイヤーへ通知する。
+
+【処理の流れ】
+1. elapsed = nowMs - inputStartTime を計算
+2. remaining = timeLimitMs - elapsed を計算（0未満は0扱い）
+3. remaining > WARNING_START_MS:
+  演出なし（LEDは通常制御）
+4. WARNING_FINAL_MS < remaining <= WARNING_START_MS:
+  LEDを250ms周期で点滅
+5. remaining <= WARNING_FINAL_MS:
+  LEDを100ms周期で高速点滅
+6. remaining == 0:
+  警告演出を停止し、判定状態へ遷移
+
+【入力値と出力値の関係】
+- 残り時間が減るほど演出の頻度が上がる
+- Easy（timeLimitMs=0）では本演出を無効化
+```
+
+---
+
 ## 4. デバッグ出力計画（任意）
 
 > **【任意】** 関数設計（Section 2）と並行して記入すると効果的です。
@@ -435,6 +457,7 @@
 | 3 | 長押し判定時間が正しいか | readSwitchWithDebounce() | Serial.println(nowMs - pressStartTime); |
 | 4 | デバウンスが効いているか | readSwitchWithDebounce() | Serial.println("btn confirmed"); |
 | 5 | アナログノイズの発生状況 | readJoystick() | Serial.println(String(stickValueX) + "," + String(stickValueY)); |
+| 6 | 残り時間演出の切替確認 | loop() | Serial.println(timeLimitMs - (nowMs - inputStartTime)); |
 
 ---
 
@@ -461,8 +484,8 @@
 | 2 | updatePlayerTone() | Y軸上下操作 | 音程が連続的に変化する | | [ ] |
 | 3 | updatePlayerTone() | X軸左右操作 | 音長が100〜300msで変化する | | [ ] |
 | 4 | blinkLED() | 結果表示(不正解)状態 | 500ms周期で点滅する | | [ ] |
-| 5 | checkAnswer() | target=440, player=430 | 正解(true)を返す | | [ ] |
-| 6 | checkAnswer() | target=440, player=410 | 不正解(false)を返す | | [ ] |
+| 5 | checkAnswer() | target=440, player=430 | isCorrect が true に更新される | | [ ] |
+| 6 | checkAnswer() | target=440, player=410 | isCorrect が false に更新される | | [ ] |
 
 ### 5-3. タイミング・並行動作テスト
 
@@ -472,6 +495,9 @@
 | 2 | 長押し境界値テスト | 900ms/1000ms/1100msで解放 | 900=短押し, 1000以上=長押し | | [ ] |
 | 3 | 再入力受付間隔 | 200ms未満で連打 | 2回目入力が無視される | | [ ] |
 | 4 | 演出delay影響確認 | 結果音再生中に入力 | 短時間演出後に正常復帰する | | [ ] |
+| 5 | 時間切れ自動提出 | 入力状態で制限時間を超えるまで待機 | 自動的に判定状態へ遷移する | | [ ] |
+| 6 | 残り3秒警告演出 | Normalで入力状態を4秒継続 | LEDが250ms周期の点滅に切り替わる | | [ ] |
+| 7 | 残り1秒最終警告演出 | Hardで入力状態を3秒継続 | LEDが100ms周期の高速点滅に切り替わる | | [ ] |
 
 ---
 
