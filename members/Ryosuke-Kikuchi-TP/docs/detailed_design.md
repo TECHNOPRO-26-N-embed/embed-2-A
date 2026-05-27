@@ -58,6 +58,11 @@
   lastDebounceTime  : unsigned long = 0 // キー入力確定時刻
   isNotifying       : bool = false      // 通知中フラグ
   DEBOUNCE_DELAY    : const int = 50    // チャタリング判定時間（ms）
+
+【メロディー定義】（きらきら星1番全体）
+  NOTIFY_MELODY_FREQ : uint16_t[] = {523,0,523,0,784,0,784,0,880,0,880,0,784,0, ...}
+  NOTIFY_MELODY_DURATION : uint16_t[] = {200,50,200,50, ...}
+  NOTIFY_MELODY_LENGTH : uint8_t = sizeof(NOTIFY_MELODY_FREQ) / sizeof(NOTIFY_MELODY_FREQ[0])
 ```
 
 ---
@@ -305,8 +310,8 @@
 
 ```
 【処理の流れ】
-1. patternId に対応する音階配列を選択する
-2. 音階と長さを順に再生する
+1. patternId に対応する音階配列（きらきら星1番全体）を選択する
+2. 音階と長さを順に再生する（1音ごとに50ms休符を挿入）
 3. 停止入力があれば即時中断する
 
 【エラー・異常ケース】
