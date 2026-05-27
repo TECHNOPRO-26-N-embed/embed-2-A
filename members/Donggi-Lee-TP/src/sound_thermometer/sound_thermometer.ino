@@ -1,5 +1,4 @@
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
+#include <LiquidCrystal.h>
 #include <math.h>
 
 // Pin definitions (detailed design aligned)
@@ -12,8 +11,8 @@ const uint8_t PIN_LED_YELLOW_2 = 8;
 const uint8_t PIN_LED_RED_1 = 9;
 const uint8_t PIN_BUZZER = 13;
 
-// LCD1602 I2C address (typical: 0x27 or 0x3F)
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+// LCD1602 parallel (4-bit): RS, E, D4, D5, D6, D7
+LiquidCrystal lcd(10, 11, A1, A2, A3, A4);
 
 // State definitions
 const uint8_t STATE_WAITING = 0;
@@ -42,6 +41,7 @@ const unsigned long OUTPUT_INTERVAL_MS = 200;
 const unsigned long DISPLAY_INTERVAL_MS = 200;
 const unsigned long MEASUREMENT_TIMEOUT_MS = 30000;
 const unsigned long EMERGENCY_BLINK_MS = 200;
+const unsigned long EMERGENCY_SOLID_ON_MS = 300;
 const unsigned long LOW_TEMP_ERROR_MS = 5000;
 const unsigned long ERROR_HOLD_MS = 2000;
 const unsigned long NOTIFY_HOLD_MS = 3000;
@@ -96,8 +96,7 @@ void setup() {
   pinMode(PIN_LED_RED_1, OUTPUT);
   pinMode(PIN_BUZZER, OUTPUT);
 
-  lcd.init();
-  lcd.backlight();
+  lcd.begin(16, 2);
 
   Serial.begin(9600);
 
@@ -141,6 +140,13 @@ void loop() {
   if (now - lastDisplayMs >= DISPLAY_INTERVAL_MS) {
     lastDisplayMs = now;
     showTemperatureOnLcd(tempC, currentState);
+
+    Serial.print("tempC=");
+    Serial.print(tempC, 1);
+    Serial.print(", state=");
+    Serial.print(currentState);
+    Serial.print(", sensorError=");
+    Serial.println(sensorErrorFlag ? "1" : "0");
   }
 }
 
@@ -301,12 +307,24 @@ void updateBuzzerByTemperature(float measuredTempC, uint8_t state) {
 void updateLedByTemperature(float measuredTempC, uint8_t state) {
   unsigned long now = millis();
 
-  if (state == STATE_WAITING || state == STATE_ERROR) {
+  if (state == STATE_WAITING) {
+    // Waiting state: keep only the blue LED on as standby indicator.
+    setAllLeds(false);
+    digitalWrite(PIN_LED_BLUE_1, HIGH);
+    return;
+  }
+
+  if (state == STATE_ERROR) {
     setAllLeds(false);
     return;
   }
 
   if (state == STATE_NOTIFY && emergencyBlinkFlag) {
+    if ((now - notifyStartMs) < EMERGENCY_SOLID_ON_MS) {
+      setAllLeds(true);
+      return;
+    }
+
     static unsigned long lastBlinkToggleMs = 0;
     if ((now - lastBlinkToggleMs) >= EMERGENCY_BLINK_MS) {
       lastBlinkToggleMs = now;
@@ -326,8 +344,10 @@ void updateLedByTemperature(float measuredTempC, uint8_t state) {
     applyLedPattern(3);
   } else if (displayTemp < TEMP_STEP_4_C) {
     applyLedPattern(4);
-  } else {
+  } else if (displayTemp <= TEMP_EMERGENCY_C) {
     applyLedPattern(5);
+  } else {
+    applyLedPattern(6);
   }
 }
 
