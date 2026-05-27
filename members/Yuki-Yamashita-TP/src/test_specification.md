@@ -56,7 +56,7 @@
 | 4  | selectDifficulty()       | 右入力                   | difficulty +1される                        | 右入力で難易度が1段階上がった | 〇 |
 | 5  | selectDifficulty()       | difficulty=最大で右入力  | それ以上増加しない                         | 最大値で停止した | 〇 |
 | 6  | selectDifficulty()       | difficulty=最小で左入力  | それ以上減少しない                         | 最小値で停止した | 〇 |
-| 7  | readJoystick()           | A/D値が0固定または1023固定               | 直前正常値を保持し再取得                    |            | [ ]  |
+| 7  | readJoystick()           | A/D値が0固定または1023固定               | 直前正常値を保持し再取得                    | 異常値時は前回値を保持した| 〇 |
 
 ---
 
