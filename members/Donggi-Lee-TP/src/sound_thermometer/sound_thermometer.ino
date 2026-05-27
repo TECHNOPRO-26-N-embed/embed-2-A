@@ -21,13 +21,13 @@ const uint8_t STATE_NOTIFY = 2;
 const uint8_t STATE_ERROR = 3;
 
 // Constants
-const float TEMP_START_C = 35.0;
+const float TEMP_START_C = 30.0;
 const float TEMP_STEP_2_C = 36.0;
 const float TEMP_STEP_3_C = 37.0;
 const float TEMP_STEP_4_C = 38.0;
 const float TEMP_EMERGENCY_C = 39.0;
 const float TEMP_VALID_MIN_C = 20.0;
-const float TEMP_VALID_MAX_C = 45.0;
+const float TEMP_VALID_MAX_C = 80.0;
 const float HYSTERESIS_C = 0.2;
 
 // Thermistor model constants
