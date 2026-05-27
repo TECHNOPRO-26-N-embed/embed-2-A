@@ -211,7 +211,9 @@ void loop() {
 }
 
 void playTargetTone() {
-  targetNote = random(NOTE_MIN_HZ, NOTE_MAX_HZ + 1);
+  int notes[] = {262, 294, 330, 349, 392, 440, 494};
+  int index = random(0, 7);  // 0〜6
+  targetNote = notes[index];
   if (targetNote < NOTE_MIN_HZ || targetNote > NOTE_MAX_HZ) {
     targetNote = NOTE_MIN_HZ;
   }
@@ -223,57 +225,88 @@ void playTargetTone() {
 }
 
 void updatePlayerTone() {
-  int mappedNote = map(stickValueY, 0, 1023, NOTE_MIN_HZ, NOTE_MAX_HZ);
-  int mappedDuration = map(stickValueX, 0, 1023, DURATION_MIN_MS, DURATION_MAX_MS);
+  static bool wasCentered = true;
+  static int noteIndex = 0;
 
-  mappedNote = constrain(mappedNote, NOTE_MIN_HZ, NOTE_MAX_HZ);
-  mappedDuration = constrain(mappedDuration, DURATION_MIN_MS, DURATION_MAX_MS);
+  int rawY = analogRead(PIN_STICK_Y);
+  int threshold = 120;
 
-  playerNote = mappedNote;
-  playerDurationMs = mappedDuration;
+  int maxIndex = 6;
+  int notes[] = {262, 294, 330, 349, 392, 440, 494};
 
-  if (nowMs - lastPreviewToneTime >= READ_INTERVAL_MS) {
-    int previewMs = constrain(playerDurationMs, 30, 50);
-    tone(PIN_BUZZER, playerNote, previewMs);
-    lastPreviewToneTime = nowMs;
+  if (rawY > 512 + threshold) {  // 上
+    if (wasCentered) {
+      noteIndex++;
+      if (noteIndex > maxIndex) noteIndex = maxIndex;
+
+      playerNote = notes[noteIndex];
+      tone(PIN_BUZZER, playerNote, 100);
+
+      wasCentered = false;
+    }
+  }
+  else if (rawY < 512 - threshold) {  // 下
+    if (wasCentered) {
+      noteIndex--;
+      if (noteIndex < 0) noteIndex = 0;
+
+      playerNote = notes[noteIndex];
+      tone(PIN_BUZZER, playerNote, 100);
+
+      wasCentered = false;
+    }
+  }
+  else {
+    wasCentered = true;
   }
 }
+
 
 void selectDifficulty() {
-  static int prevDifficulty = -1;
+  static bool wasCentered = true;
 
-  if (stickValueX < (512 - 250)) {
-    difficulty = 0;
-  } else if (stickValueX > (512 + 250)) {
-    difficulty = 2;
-  } else {
-    difficulty = 1;
-  }
+  int rawX = analogRead(PIN_STICK_X);
+  int threshold = 120;
 
-  switch (difficulty) {
-    case 0:
-      timeLimitMs = TIME_LIMIT_EASY;
-      break;
-    case 2:
-      timeLimitMs = TIME_LIMIT_HARD;
-      break;
-    case 1:
-    default:
-      timeLimitMs = TIME_LIMIT_NORMAL;
-      break;
-  }
+  if (rawX > 512 + threshold) {  // 右 → 次へ
+    if (wasCentered) {
+      difficulty++;
+      if (difficulty > 2) difficulty = 2;
 
-  if (difficulty != prevDifficulty) {
-    int notifyTone = 440;
-    if (difficulty == 0) {
-      notifyTone = 330;
-    } else if (difficulty == 2) {
-      notifyTone = 660;
+      applyDifficulty();
+      wasCentered = false;
     }
-    tone(PIN_BUZZER, notifyTone, 70);
-    prevDifficulty = difficulty;
+  }
+  else if (rawX < 512 - threshold) {  // 左 → 戻る
+    if (wasCentered) {
+      difficulty--;
+      if (difficulty < 0) difficulty = 0;
+
+      applyDifficulty();
+      wasCentered = false;
+    }
+  }
+  else {
+    wasCentered = true;
   }
 }
+
+void applyDifficulty() {
+  if (difficulty == 0) timeLimitMs = TIME_LIMIT_EASY;
+  else if (difficulty == 2) timeLimitMs = TIME_LIMIT_HARD;
+  else timeLimitMs = TIME_LIMIT_NORMAL;
+
+  Serial.print("difficulty=");
+  Serial.println(difficulty);
+
+  int notifyTone = 440;
+  if (difficulty == 0) notifyTone = 330;
+  else if (difficulty == 2) notifyTone = 660;
+
+  tone(PIN_BUZZER, notifyTone, 70);
+}
+
+
 
 void blinkLED() {
   if (nowMs - lastBlinkTime >= BLINK_INTERVAL_MS) {
